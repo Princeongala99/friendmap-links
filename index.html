@@ -1,20 +1,152 @@
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
-  <title>FriendMap</title>
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Partage de Position - FriendMap</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
-    body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; text-align: center; }
-    .container { padding: 2rem; }
-    a { background-color: #007bff; color: white; padding: 1rem 2rem; text-decoration: none; border-radius: 8px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: #f0f2f5; }
+    .card { background: white; padding: 2rem; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center; max-width: 350px; margin: 1rem; }
+    input { width: 100%; padding: 0.8rem; margin-bottom: 1rem; border-radius: 8px; border: 1px solid #ddd; box-sizing: border-box; }
+    button { width: 100%; padding: 1rem; border: none; border-radius: 8px; background-color: #007bff; color: white; font-size: 1rem; font-weight: bold; cursor: pointer; }
+    button:disabled { background-color: #aaa; }
+    .status { margin-top: 1.5rem; }
+    .icon { font-size: 4rem; margin-bottom: 1rem; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>FriendMap</h1>
-    <p>Pour rejoindre ce groupe, vous devez installer l'application.</p>
-    <br>
-    <a href="https://play.google.com/store/apps/details?id=com.example.friendmap">Télécharger sur le Play Store</a>
+
+  <div id="main-card" class="card">
+    <!-- Étape 1: Demander le nom -->
+    <div id="name-step">
+      <div class="icon">📍</div>
+      <h2>Rejoindre le partage</h2>
+      <p>Pour partager votre position, veuillez entrer votre nom.</p>
+      <input type="text" id="nameInput" placeholder="Votre nom" required>
+      <button id="joinButton">Autoriser et Partager</button>
+    </div>
+
+    <!-- Étape 2: Afficher le statut du partage -->
+    <div id="sharing-step" style="display: none;">
+      <div class="icon" style="color: #28a745;">✅</div>
+      <h2>Partage Activé !</h2>
+      <p>Votre position est maintenant partagée avec <strong id="ownerName">votre ami</strong>. Gardez cette page ouverte pour continuer le partage.</p>
+      <div class="status">
+        <p>Statut : <span id="statusText" style="color: #28a745;">En ligne</span></p>
+      </div>
+    </div>
   </div>
+
+  <script>
+    // --- CONFIGURATION ---
+    const SUPABASE_URL = 'VOTRE_URL_SUPABASE';
+    const SUPABASE_ANON_KEY = 'VOTRE_CLÉ_ANON_SUPABASE';
+
+    const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // --- ÉLÉMENTS DU DOM ---
+    const nameStep = document.getElementById('name-step');
+    const sharingStep = document.getElementById('sharing-step');
+    const nameInput = document.getElementById('nameInput');
+    const joinButton = document.getElementById('joinButton');
+    const statusText = document.getElementById('statusText');
+    
+    let participantId = null;
+    let watchId = null;
+
+    // Récupère le groupId depuis l'URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const groupId = urlParams.get('id');
+
+    if (!groupId) {
+      document.getElementById('main-card').innerHTML = '<h2>Lien invalide ou expiré.</h2>';
+    }
+
+    // --- GESTIONNAIRE DE CLIC ---
+    joinButton.addEventListener('click', async () => {
+      const name = nameInput.value.trim();
+      if (!name) {
+        alert('Veuillez entrer votre nom.');
+        return;
+      }
+
+      joinButton.disabled = true;
+      joinButton.textContent = 'Autorisation...';
+
+      if (!navigator.geolocation) {
+        alert("La géolocalisation n'est pas supportée par votre navigateur.");
+        return;
+      }
+
+      // 1. Obtenir la position initiale
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords;
+          const initialLocation = `POINT(${longitude} ${latitude})`;
+          
+          try {
+            // 2. Appeler la RPC pour rejoindre le groupe
+            const { data, error } = await supabase.rpc('join_sharing_group', {
+              p_group_id: groupId,
+              p_name: name,
+              p_initial_location: initialLocation,
+            });
+
+            if (error) throw error;
+            
+            participantId = data; // La RPC retourne l'ID du participant
+            
+            // 3. Afficher l'étape de partage et démarrer le suivi
+            nameStep.style.display = 'none';
+            sharingStep.style.display = 'block';
+            startWatchingPosition();
+
+          } catch (error) {
+            alert('Erreur lors de la connexion au groupe : ' + error.message);
+            joinButton.disabled = false;
+            joinButton.textContent = 'Autoriser et Partager';
+          }
+        },
+        (error) => {
+          alert("Erreur de géolocalisation : " + error.message);
+          joinButton.disabled = false;
+          joinButton.textContent = 'Autoriser et Partager';
+        }
+      );
+    });
+    
+    // --- SUIVI EN CONTINU ---
+    function startWatchingPosition() {
+      watchId = navigator.geolocation.watchPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords;
+          const newLocation = `POINT(${longitude} ${latitude})`;
+
+          // Met à jour la position via la RPC
+          const { error } = await supabase.rpc('update_participant_location_web', {
+            p_participant_id: participantId,
+            p_new_location: newLocation,
+          });
+
+          if (error) {
+            console.error("Erreur de mise à jour de la position:", error);
+            statusText.textContent = "Erreur";
+            statusText.style.color = 'red';
+          } else {
+            console.log("Position mise à jour !");
+            statusText.textContent = "En ligne";
+            statusText.style.color = '#28a745';
+          }
+        },
+        (error) => {
+          console.error("Erreur de suivi:", error);
+          statusText.textContent = "Erreur de localisation";
+          statusText.style.color = 'red';
+        },
+        { enableHighAccuracy: true }
+      );
+    }
+  </script>
 </body>
 </html>
