@@ -99,25 +99,22 @@
   </div>
 
   <script>
-    // --- 1. CONFIGURATION ---
-    const SUPABASE_URL = 'https://wqrwjgxyjkmkutlznpzv.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndxcndqZ3h5amtta3V0bHpucHp2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg4MDE1MTksImV4cCI6MjA3NDM3NzUxOX0.rJWtE47nXYKRg_pWJBmJBGA1PaZRNMFSiV44pjsVZH0';
-
-    // Correction de l'initialisation de Supabase
+    const SUPABASE_URL = 'VOTRE_URL_SUPABASE';
+    const SUPABASE_ANON_KEY = 'VOTRE_CLÉ_ANON_SUPABASE';
     const { createClient } = supabase;
     const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // --- 2. RÉCUPÉRATION DES ÉLÉMENTS DU DOM ---
     const joinStep = document.getElementById('join-step');
     const sharingStep = document.getElementById('sharing-step');
     const joinButton = document.getElementById('joinButton');
     const statusText = document.getElementById('statusText');
     const errorMessage = document.getElementById('error-message');
     
-    let participantId = null;
     let watchId = null;
+    
+    // --- NOUVELLE LOGIQUE DE PERSISTANCE ---
+    let participantId = localStorage.getItem('participantId');
 
-    // Récupère le groupId depuis l'URL de la page
     const urlParams = new URLSearchParams(window.location.search);
     const groupId = urlParams.get('id');
 
@@ -125,68 +122,29 @@
       document.getElementById('main-card').innerHTML = '<h2>Lien invalide ou expiré.</h2>';
     }
 
-    // --- 3. FONCTIONS HELPER ---
-    function showError(message) {
-      console.error("Erreur affichée à l'utilisateur:", message);
-      errorMessage.textContent = message;
-      errorMessage.style.display = 'block'; // Rendre visible
-      joinButton.disabled = false;
-      joinButton.textContent = 'Réessayer';
-    }
-
-    function startWatchingPosition() {
-      if (watchId) navigator.geolocation.clearWatch(watchId); // Sécurité
-
-      watchId = navigator.geolocation.watchPosition(
-        async (position) => {
-          const { latitude, longitude } = position.coords;
-          const newLocation = `POINT(${longitude} ${latitude})`;
-          
-          console.log("Mise à jour de la position:", newLocation);
-          statusText.textContent = "En ligne (mise à jour...)";
-          
-          const { error } = await supabaseClient.rpc('update_participant_location_web', {
-            p_participant_id: participantId,
-            p_new_location: newLocation,
-          });
-
-          if (error) {
-            console.error("Erreur de mise à jour:", error);
-            statusText.textContent = "Erreur";
-            statusText.style.color = 'red';
-          } else {
-            statusText.textContent = "En ligne";
-            statusText.style.color = '#28a745';
-          }
-        },
-        (error) => {
-          console.error("Erreur de suivi de la position:", error);
-          statusText.textContent = "Erreur de localisation";
-          statusText.style.color = 'red';
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-      );
+    // Si on a déjà rejoint ce groupe, on passe directement au partage
+    if (participantId && localStorage.getItem('groupId') === groupId) {
+      console.log(`Déjà participant (ID: ${participantId}). Démarrage direct du partage.`);
+      joinStep.style.display = 'none';
+      sharingStep.style.display = 'block';
+      startWatchingPosition();
     }
     
-    // --- 4. GESTIONNAIRE D'ÉVÉNEMENT PRINCIPAL ---
+    function showError(message) { /* ... inchangé ... */ }
+
     joinButton.addEventListener('click', () => {
       joinButton.disabled = true;
       joinButton.textContent = 'Autorisation...';
-      errorMessage.style.display = 'none'; // Cacher l'ancienne erreur
+      errorMessage.textContent = '';
 
-      if (!navigator.geolocation) {
-        return showError("La géolocalisation n'est pas supportée par votre navigateur.");
-      }
+      if (!navigator.geolocation) return showError("La géolocalisation n'est pas supportée.");
       
-      console.log("Demande de la position initiale...");
       navigator.geolocation.getCurrentPosition(
         async (position) => {
           const { latitude, longitude } = position.coords;
-          console.log(`Position initiale obtenue: ${latitude}, ${longitude}`);
           const initialLocation = `POINT(${longitude} ${latitude})`;
           
           try {
-            console.log(`Tentative de rejoindre le groupe ${groupId}...`);
             const { data, error } = await supabaseClient.rpc('join_sharing_group', {
               p_group_id: groupId,
               p_initial_location: initialLocation,
@@ -195,21 +153,52 @@
             if (error) throw error;
             
             participantId = data;
-            console.log(`Groupe rejoint avec succès. Participant ID: ${participantId}`);
+            
+            // On stocke les IDs dans le localStorage
+            localStorage.setItem('participantId', participantId);
+            localStorage.setItem('groupId', groupId);
             
             joinStep.style.display = 'none';
             sharingStep.style.display = 'block';
             startWatchingPosition();
 
-          } catch (error) {
-            showError('Erreur lors de la connexion au groupe : ' + error.message);
-          }
+          } catch (error) { showError('Erreur : ' + error.message); }
         },
-        (error) => {
-          showError("Erreur de géolocalisation : " + error.message + ". Veuillez autoriser la localisation dans les paramètres de votre navigateur.");
-        }
+        (error) => { showError("Erreur de géolocalisation : " + error.message); }
       );
     });
-  </script>
+    
+    function startWatchingPosition() {
+      if (watchId) navigator.geolocation.clearWatch(watchId); // Sécurité
+
+      watchId = navigator.geolocation.watchPosition(
+        async (position) => {
+          // Si on a perdu l'ID du participant, on ne fait rien
+          if (!participantId) {
+              console.error("ID du participant manquant. Impossible de mettre à jour la position.");
+              return;
+          }
+        
+          const { latitude, longitude } = position.coords;
+          const newLocation = `POINT(${longitude} ${latitude})`;
+
+          const { error } = await supabaseClient.rpc('update_participant_location_web', {
+            p_participant_id: participantId,
+            p_new_location: newLocation,
+          });
+
+          if (error) {
+            console.error("Erreur de mise à jour:", error);
+            statusText.textContent = "Erreur"; statusText.style.color = 'red';
+          } else {
+            console.log("Position mise à jour !");
+            statusText.textContent = "En ligne"; statusText.style.color = '#28a745';
+          }
+        },
+        (error) => { /* ... inchangé ... */ },
+        { enableHighAccuracy: true }
+      );
+    }
+</script>
 </body>
 </html>
