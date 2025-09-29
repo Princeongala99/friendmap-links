@@ -23,7 +23,8 @@
       background: white;
       padding: 2rem;
       border-radius: 16px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      box-shadow: 0 4px
+ 12px rgba(0,0,0,0.1);
       text-align: center;
       max-width: 350px;
       margin: 1rem;
@@ -69,7 +70,7 @@
       color: #dc3545;
       font-size: 0.9rem;
       margin-top: 1rem;
-      display: none; /* Caché par défaut */
+      min-height: 1.2rem; /* Pour éviter que le layout ne saute */
     }
   </style>
 </head>
@@ -99,11 +100,14 @@
   </div>
 
   <script>
-    const SUPABASE_URL = 'VOTRE_URL_SUPABASE';
-    const SUPABASE_ANON_KEY = 'VOTRE_CLÉ_ANON_SUPABASE';
-    const { createClient } = supabase;
-    const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // --- CONFIGURATION ---
+    const SUPABASE_URL = 'https://wqrwjgxyjkmkutlznpzv.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndxcndqZ3h5amtta3V0bHpucHp2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg4MDE1MTksImV4cCI6MjA3NDM3NzUxOX0.rJWtE47nXYKRg_pWJBmJBGA1PaZRNMFSiV44pjsVZH0';
 
+    // CORRECTION: Initialisation correcte du client Supabase
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // --- ÉLÉMENTS DU DOM ---
     const joinStep = document.getElementById('join-step');
     const sharingStep = document.getElementById('sharing-step');
     const joinButton = document.getElementById('joinButton');
@@ -111,33 +115,41 @@
     const errorMessage = document.getElementById('error-message');
     
     let watchId = null;
-    
-    // --- NOUVELLE LOGIQUE DE PERSISTANCE ---
     let participantId = localStorage.getItem('participantId');
 
     const urlParams = new URLSearchParams(window.location.search);
     const groupId = urlParams.get('id');
 
+    // --- LOGIQUE PRINCIPALE ---
     if (!groupId) {
       document.getElementById('main-card').innerHTML = '<h2>Lien invalide ou expiré.</h2>';
-    }
-
-    // Si on a déjà rejoint ce groupe, on passe directement au partage
-    if (participantId && localStorage.getItem('groupId') === groupId) {
-      console.log(`Déjà participant (ID: ${participantId}). Démarrage direct du partage.`);
-      joinStep.style.display = 'none';
-      sharingStep.style.display = 'block';
-      startWatchingPosition();
+    } else {
+      // Si on a déjà rejoint ce groupe, on passe directement au partage
+      if (participantId && localStorage.getItem('groupId') === groupId) {
+        console.log(`Déjà participant (ID: ${participantId}). Démarrage direct du partage.`);
+        joinStep.style.display = 'none';
+        sharingStep.style.display = 'block';
+        startWatchingPosition();
+      }
     }
     
-    function showError(message) { /* ... inchangé ... */ }
+    function showError(message) {
+      console.error(message);
+      errorMessage.style.display = 'block';
+      errorMessage.textContent = message;
+      joinButton.disabled = false;
+      joinButton.textContent = 'Réessayer';
+    }
 
     joinButton.addEventListener('click', () => {
       joinButton.disabled = true;
       joinButton.textContent = 'Autorisation...';
       errorMessage.textContent = '';
+      errorMessage.style.display = 'none';
 
-      if (!navigator.geolocation) return showError("La géolocalisation n'est pas supportée.");
+      if (!navigator.geolocation) {
+        return showError("La géolocalisation n'est pas supportée par votre navigateur.");
+      }
       
       navigator.geolocation.getCurrentPosition(
         async (position) => {
@@ -154,7 +166,6 @@
             
             participantId = data;
             
-            // On stocke les IDs dans le localStorage
             localStorage.setItem('participantId', participantId);
             localStorage.setItem('groupId', groupId);
             
@@ -164,19 +175,20 @@
 
           } catch (error) { showError('Erreur : ' + error.message); }
         },
-        (error) => { showError("Erreur de géolocalisation : " + error.message); }
+        (error) => { showError("Erreur de géolocalisation : " + error.message + ". Veuillez autoriser la localisation."); },
+        { enableHighAccuracy: true } // Demande une position plus précise
       );
     });
     
     function startWatchingPosition() {
-      if (watchId) navigator.geolocation.clearWatch(watchId); // Sécurité
+      if (watchId) navigator.geolocation.clearWatch(watchId);
 
       watchId = navigator.geolocation.watchPosition(
         async (position) => {
-          // Si on a perdu l'ID du participant, on ne fait rien
           if (!participantId) {
-              console.error("ID du participant manquant. Impossible de mettre à jour la position.");
-              return;
+            console.error("ID du participant manquant. Impossible de mettre à jour.");
+            statusText.textContent = "Erreur (ID manquant)"; statusText.style.color = 'red';
+            return;
           }
         
           const { latitude, longitude } = position.coords;
@@ -195,7 +207,10 @@
             statusText.textContent = "En ligne"; statusText.style.color = '#28a745';
           }
         },
-        (error) => { /* ... inchangé ... */ },
+        (error) => { 
+          console.error("Erreur de suivi GPS:", error);
+          statusText.textContent = "Erreur GPS"; statusText.style.color = 'red';
+        },
         { enableHighAccuracy: true }
       );
     }
