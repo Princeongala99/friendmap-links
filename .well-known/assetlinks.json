@@ -1,0 +1,9 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.example.friendmap",
+    "sha256_cert_fingerprints":
+    ["75:A1:E5:62:75:ED:4C:C9:F6:35:CF:6A:A2:09:2A:CD:D3:E4:C7:E4:F3:58:6D:99:45:B8:96:FC:55:EE:00:DA"]
+  }
+}]
