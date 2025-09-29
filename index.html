@@ -8,7 +8,6 @@
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: #f0f2f5; }
     .card { background: white; padding: 2rem; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center; max-width: 350px; margin: 1rem; }
-    input { width: 100%; padding: 0.8rem; margin-bottom: 1rem; border-radius: 8px; border: 1px solid #ddd; box-sizing: border-box; }
     button { width: 100%; padding: 1rem; border: none; border-radius: 8px; background-color: #007bff; color: white; font-size: 1rem; font-weight: bold; cursor: pointer; }
     button:disabled { background-color: #aaa; }
     .status { margin-top: 1.5rem; }
@@ -18,12 +17,11 @@
 <body>
 
   <div id="main-card" class="card">
-    <!-- Étape 1: Demander le nom -->
-    <div id="name-step">
+    <!-- Étape 1: Demander l'autorisation -->
+    <div id="join-step">
       <div class="icon">📍</div>
-      <h2>Rejoindre le partage</h2>
-      <p>Pour partager votre position, veuillez entrer votre nom.</p>
-      <input type="text" id="nameInput" placeholder="Votre nom" required>
+      <h2>Partager votre position</h2>
+      <p>Votre ami souhaite voir votre position en temps réel. Acceptez pour commencer le partage.</p>
       <button id="joinButton">Autoriser et Partager</button>
     </div>
 
@@ -31,7 +29,7 @@
     <div id="sharing-step" style="display: none;">
       <div class="icon" style="color: #28a745;">✅</div>
       <h2>Partage Activé !</h2>
-      <p>Votre position est maintenant partagée avec <strong id="ownerName">votre ami</strong>. Gardez cette page ouverte pour continuer le partage.</p>
+      <p>Votre position est maintenant partagée. Gardez cette page ouverte pour continuer le partage.</p>
       <div class="status">
         <p>Statut : <span id="statusText" style="color: #28a745;">En ligne</span></p>
       </div>
@@ -39,23 +37,18 @@
   </div>
 
   <script>
-    // --- CONFIGURATION ---
     const SUPABASE_URL = 'VOTRE_URL_SUPABASE';
     const SUPABASE_ANON_KEY = 'VOTRE_CLÉ_ANON_SUPABASE';
-
     const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // --- ÉLÉMENTS DU DOM ---
-    const nameStep = document.getElementById('name-step');
+    const joinStep = document.getElementById('join-step');
     const sharingStep = document.getElementById('sharing-step');
-    const nameInput = document.getElementById('nameInput');
     const joinButton = document.getElementById('joinButton');
     const statusText = document.getElementById('statusText');
     
     let participantId = null;
     let watchId = null;
 
-    // Récupère le groupId depuis l'URL
     const urlParams = new URLSearchParams(window.location.search);
     const groupId = urlParams.get('id');
 
@@ -63,14 +56,7 @@
       document.getElementById('main-card').innerHTML = '<h2>Lien invalide ou expiré.</h2>';
     }
 
-    // --- GESTIONNAIRE DE CLIC ---
-    joinButton.addEventListener('click', async () => {
-      const name = nameInput.value.trim();
-      if (!name) {
-        alert('Veuillez entrer votre nom.');
-        return;
-      }
-
+    joinButton.addEventListener('click', () => {
       joinButton.disabled = true;
       joinButton.textContent = 'Autorisation...';
 
@@ -79,31 +65,28 @@
         return;
       }
 
-      // 1. Obtenir la position initiale
       navigator.geolocation.getCurrentPosition(
         async (position) => {
           const { latitude, longitude } = position.coords;
           const initialLocation = `POINT(${longitude} ${latitude})`;
           
           try {
-            // 2. Appeler la RPC pour rejoindre le groupe
+            // Appelle la RPC simplifiée (sans le nom)
             const { data, error } = await supabase.rpc('join_sharing_group', {
               p_group_id: groupId,
-              p_name: name,
               p_initial_location: initialLocation,
             });
 
             if (error) throw error;
             
-            participantId = data; // La RPC retourne l'ID du participant
+            participantId = data;
             
-            // 3. Afficher l'étape de partage et démarrer le suivi
-            nameStep.style.display = 'none';
+            joinStep.style.display = 'none';
             sharingStep.style.display = 'block';
             startWatchingPosition();
 
           } catch (error) {
-            alert('Erreur lors de la connexion au groupe : ' + error.message);
+            alert('Erreur : ' + error.message);
             joinButton.disabled = false;
             joinButton.textContent = 'Autoriser et Partager';
           }
@@ -116,25 +99,22 @@
       );
     });
     
-    // --- SUIVI EN CONTINU ---
     function startWatchingPosition() {
       watchId = navigator.geolocation.watchPosition(
         async (position) => {
           const { latitude, longitude } = position.coords;
           const newLocation = `POINT(${longitude} ${latitude})`;
 
-          // Met à jour la position via la RPC
           const { error } = await supabase.rpc('update_participant_location_web', {
             p_participant_id: participantId,
             p_new_location: newLocation,
           });
 
           if (error) {
-            console.error("Erreur de mise à jour de la position:", error);
+            console.error("Erreur de mise à jour:", error);
             statusText.textContent = "Erreur";
             statusText.style.color = 'red';
           } else {
-            console.log("Position mise à jour !");
             statusText.textContent = "En ligne";
             statusText.style.color = '#28a745';
           }
