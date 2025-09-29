@@ -4,14 +4,73 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Partage de Position - FriendMap</title>
+  
+  <!-- Import du script Supabase depuis leur CDN -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: #f0f2f5; }
-    .card { background: white; padding: 2rem; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center; max-width: 350px; margin: 1rem; }
-    button { width: 100%; padding: 1rem; border: none; border-radius: 8px; background-color: #007bff; color: white; font-size: 1rem; font-weight: bold; cursor: pointer; }
-    button:disabled { background-color: #aaa; }
-    .status { margin-top: 1.5rem; }
-    .icon { font-size: 4rem; margin-bottom: 1rem; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      background-color: #f0f2f5;
+      color: #333;
+    }
+    .card { 
+      background: white;
+      padding: 2rem;
+      border-radius: 16px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      text-align: center;
+      max-width: 350px;
+      margin: 1rem;
+      transition: opacity 0.3s ease-in-out;
+    }
+    h2 {
+      margin-top: 0;
+    }
+    p {
+      color: #666;
+      line-height: 1.5;
+    }
+    button { 
+      width: 100%;
+      padding: 1rem;
+      border: none;
+      border-radius: 8px;
+      background-color: #007bff;
+      color: white;
+      font-size: 1rem;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    button:disabled {
+      background-color: #aaa;
+      cursor: not-allowed;
+    }
+    .status {
+      margin-top: 1.5rem;
+      padding: 0.5rem;
+      background-color: #e9ecef;
+      border-radius: 8px;
+    }
+    .icon {
+      font-size: 4rem;
+      margin-bottom: 1rem;
+    }
+    .error {
+      color: #dc3545;
+      font-size: 0.9rem;
+      margin-top: 1rem;
+      display: none; /* Caché par défaut */
+    }
   </style>
 </head>
 <body>
@@ -29,26 +88,36 @@
     <div id="sharing-step" style="display: none;">
       <div class="icon" style="color: #28a745;">✅</div>
       <h2>Partage Activé !</h2>
-      <p>Votre position est maintenant partagée. Gardez cette page ouverte pour continuer le partage.</p>
+      <p>Votre position est maintenant partagée. Gardez cette page ouverte pour continuer.</p>
       <div class="status">
         <p>Statut : <span id="statusText" style="color: #28a745;">En ligne</span></p>
       </div>
     </div>
+    
+    <!-- Zone pour afficher les erreurs -->
+    <div id="error-message" class="error"></div>
   </div>
 
   <script>
-    const SUPABASE_URL = 'VOTRE_URL_SUPABASE';
-    const SUPABASE_ANON_KEY = 'VOTRE_CLÉ_ANON_SUPABASE';
-    const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // --- 1. CONFIGURATION ---
+    const SUPABASE_URL = 'https://wqrwjgxyjkmkutlznpzv.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndxcndqZ3h5amtta3V0bHpucHp2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg4MDE1MTksImV4cCI6MjA3NDM3NzUxOX0.rJWtE47nXYKRg_pWJBmJBGA1PaZRNMFSiV44pjsVZH0';
 
+    // Correction de l'initialisation de Supabase
+    const { createClient } = supabase;
+    const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // --- 2. RÉCUPÉRATION DES ÉLÉMENTS DU DOM ---
     const joinStep = document.getElementById('join-step');
     const sharingStep = document.getElementById('sharing-step');
     const joinButton = document.getElementById('joinButton');
     const statusText = document.getElementById('statusText');
+    const errorMessage = document.getElementById('error-message');
     
     let participantId = null;
     let watchId = null;
 
+    // Récupère le groupId depuis l'URL de la page
     const urlParams = new URLSearchParams(window.location.search);
     const groupId = urlParams.get('id');
 
@@ -56,56 +125,27 @@
       document.getElementById('main-card').innerHTML = '<h2>Lien invalide ou expiré.</h2>';
     }
 
-    joinButton.addEventListener('click', () => {
-      joinButton.disabled = true;
-      joinButton.textContent = 'Autorisation...';
+    // --- 3. FONCTIONS HELPER ---
+    function showError(message) {
+      console.error("Erreur affichée à l'utilisateur:", message);
+      errorMessage.textContent = message;
+      errorMessage.style.display = 'block'; // Rendre visible
+      joinButton.disabled = false;
+      joinButton.textContent = 'Réessayer';
+    }
 
-      if (!navigator.geolocation) {
-        alert("La géolocalisation n'est pas supportée par votre navigateur.");
-        return;
-      }
-
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const { latitude, longitude } = position.coords;
-          const initialLocation = `POINT(${longitude} ${latitude})`;
-          
-          try {
-            // Appelle la RPC simplifiée (sans le nom)
-            const { data, error } = await supabase.rpc('join_sharing_group', {
-              p_group_id: groupId,
-              p_initial_location: initialLocation,
-            });
-
-            if (error) throw error;
-            
-            participantId = data;
-            
-            joinStep.style.display = 'none';
-            sharingStep.style.display = 'block';
-            startWatchingPosition();
-
-          } catch (error) {
-            alert('Erreur : ' + error.message);
-            joinButton.disabled = false;
-            joinButton.textContent = 'Autoriser et Partager';
-          }
-        },
-        (error) => {
-          alert("Erreur de géolocalisation : " + error.message);
-          joinButton.disabled = false;
-          joinButton.textContent = 'Autoriser et Partager';
-        }
-      );
-    });
-    
     function startWatchingPosition() {
+      if (watchId) navigator.geolocation.clearWatch(watchId); // Sécurité
+
       watchId = navigator.geolocation.watchPosition(
         async (position) => {
           const { latitude, longitude } = position.coords;
           const newLocation = `POINT(${longitude} ${latitude})`;
-
-          const { error } = await supabase.rpc('update_participant_location_web', {
+          
+          console.log("Mise à jour de la position:", newLocation);
+          statusText.textContent = "En ligne (mise à jour...)";
+          
+          const { error } = await supabaseClient.rpc('update_participant_location_web', {
             p_participant_id: participantId,
             p_new_location: newLocation,
           });
@@ -120,13 +160,56 @@
           }
         },
         (error) => {
-          console.error("Erreur de suivi:", error);
+          console.error("Erreur de suivi de la position:", error);
           statusText.textContent = "Erreur de localisation";
           statusText.style.color = 'red';
         },
-        { enableHighAccuracy: true }
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
     }
+    
+    // --- 4. GESTIONNAIRE D'ÉVÉNEMENT PRINCIPAL ---
+    joinButton.addEventListener('click', () => {
+      joinButton.disabled = true;
+      joinButton.textContent = 'Autorisation...';
+      errorMessage.style.display = 'none'; // Cacher l'ancienne erreur
+
+      if (!navigator.geolocation) {
+        return showError("La géolocalisation n'est pas supportée par votre navigateur.");
+      }
+      
+      console.log("Demande de la position initiale...");
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords;
+          console.log(`Position initiale obtenue: ${latitude}, ${longitude}`);
+          const initialLocation = `POINT(${longitude} ${latitude})`;
+          
+          try {
+            console.log(`Tentative de rejoindre le groupe ${groupId}...`);
+            const { data, error } = await supabaseClient.rpc('join_sharing_group', {
+              p_group_id: groupId,
+              p_initial_location: initialLocation,
+            });
+
+            if (error) throw error;
+            
+            participantId = data;
+            console.log(`Groupe rejoint avec succès. Participant ID: ${participantId}`);
+            
+            joinStep.style.display = 'none';
+            sharingStep.style.display = 'block';
+            startWatchingPosition();
+
+          } catch (error) {
+            showError('Erreur lors de la connexion au groupe : ' + error.message);
+          }
+        },
+        (error) => {
+          showError("Erreur de géolocalisation : " + error.message + ". Veuillez autoriser la localisation dans les paramètres de votre navigateur.");
+        }
+      );
+    });
   </script>
 </body>
 </html>
