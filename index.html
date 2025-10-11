@@ -4,10 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Partage de Position - FriendMap</title>
-  
-  <!-- Import du script Supabase depuis leur CDN -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
   <style>
     body { 
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -23,139 +20,89 @@
       background: white;
       padding: 2rem;
       border-radius: 16px;
-      box-shadow: 0 4px
- 12px rgba(0,0,0,0.1);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
       text-align: center;
       max-width: 350px;
       margin: 1rem;
-      transition: opacity 0.3s ease-in-out;
     }
-    h2 {
-      margin-top: 0;
-    }
-    p {
-      color: #666;
-      line-height: 1.5;
-    }
-    button { 
-      width: 100%;
-      padding: 1rem;
-      border: none;
-      border-radius: 8px;
-      background-color: #007bff;
-      color: white;
-      font-size: 1rem;
-      font-weight: bold;
-      cursor: pointer;
-      transition: background-color 0.2s;
-    }
-    button:hover {
-      background-color: #0056b3;
-    }
-    button:disabled {
-      background-color: #aaa;
-      cursor: not-allowed;
-    }
+    .icon { font-size: 4rem; margin-bottom: 1rem; }
+    h2 { margin-top: 0; }
+    p { color: #666; line-height: 1.5; }
     .status {
       margin-top: 1.5rem;
       padding: 0.5rem;
       background-color: #e9ecef;
       border-radius: 8px;
     }
-    .icon {
-      font-size: 4rem;
-      margin-bottom: 1rem;
-    }
-    .error {
-      color: #dc3545;
-      font-size: 0.9rem;
-      margin-top: 1rem;
-      min-height: 1.2rem; /* Pour éviter que le layout ne saute */
-    }
+    .error { color: #dc3545; font-size: 0.9rem; margin-top: 1rem; min-height: 1.2rem; }
   </style>
 </head>
 <body>
 
   <div id="main-card" class="card">
-    <!-- Étape 1: Demander l'autorisation -->
     <div id="join-step">
       <div class="icon">📍</div>
-      <h2>Partager votre position</h2>
-      <p>Votre ami souhaite voir votre position en temps réel. Acceptez pour commencer le partage.</p>
-      <button id="joinButton">Autoriser et Partager</button>
+      <h2>Partage de votre position</h2>
+      <p>Veuillez autoriser la géolocalisation pour démarrer le partage en temps réel...</p>
     </div>
 
-    <!-- Étape 2: Afficher le statut du partage -->
     <div id="sharing-step" style="display: none;">
       <div class="icon" style="color: #28a745;">✅</div>
       <h2>Partage Activé !</h2>
-      <p>Votre position est maintenant partagée. Gardez cette page ouverte pour continuer.</p>
+      <p>Votre position est partagée. Gardez cette page ouverte (même en arrière-plan).</p>
       <div class="status">
         <p>Statut : <span id="statusText" style="color: #28a745;">En ligne</span></p>
       </div>
     </div>
     
-    <!-- Zone pour afficher les erreurs -->
     <div id="error-message" class="error"></div>
   </div>
 
   <script>
-    // --- CONFIGURATION ---
     const SUPABASE_URL = 'https://wqrwjgxyjkmkutlznpzv.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndxcndqZ3h5amtta3V0bHpucHp2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg4MDE1MTksImV4cCI6MjA3NDM3NzUxOX0.rJWtE47nXYKRg_pWJBmJBGA1PaZRNMFSiV44pjsVZH0';
-
-    // CORRECTION: Initialisation correcte du client Supabase
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // --- ÉLÉMENTS DU DOM ---
     const joinStep = document.getElementById('join-step');
     const sharingStep = document.getElementById('sharing-step');
-    const joinButton = document.getElementById('joinButton');
     const statusText = document.getElementById('statusText');
     const errorMessage = document.getElementById('error-message');
     
     let watchId = null;
     let participantId = localStorage.getItem('participantId');
-
     const urlParams = new URLSearchParams(window.location.search);
     const groupId = urlParams.get('id');
 
-    // --- LOGIQUE PRINCIPALE ---
     if (!groupId) {
       document.getElementById('main-card').innerHTML = '<h2>Lien invalide ou expiré.</h2>';
     } else {
-      // Si on a déjà rejoint ce groupe, on passe directement au partage
       if (participantId && localStorage.getItem('groupId') === groupId) {
-        console.log(`Déjà participant (ID: ${participantId}). Démarrage direct du partage.`);
         joinStep.style.display = 'none';
         sharingStep.style.display = 'block';
         startWatchingPosition();
+      } else {
+        requestLocationAutomatically();
       }
     }
-    
+
     function showError(message) {
       console.error(message);
-      errorMessage.style.display = 'block';
       errorMessage.textContent = message;
-      joinButton.disabled = false;
-      joinButton.textContent = 'Réessayer';
+      errorMessage.style.display = 'block';
+      statusText.textContent = 'Erreur';
+      statusText.style.color = 'red';
     }
 
-    joinButton.addEventListener('click', () => {
-      joinButton.disabled = true;
-      joinButton.textContent = 'Autorisation...';
-      errorMessage.textContent = '';
-      errorMessage.style.display = 'none';
-
+    function requestLocationAutomatically() {
       if (!navigator.geolocation) {
         return showError("La géolocalisation n'est pas supportée par votre navigateur.");
       }
-      
+
       navigator.geolocation.getCurrentPosition(
         async (position) => {
           const { latitude, longitude } = position.coords;
           const initialLocation = `POINT(${longitude} ${latitude})`;
-          
+
           try {
             const { data, error } = await supabaseClient.rpc('join_sharing_group', {
               p_group_id: groupId,
@@ -165,32 +112,35 @@
             if (error) throw error;
             
             participantId = data;
-            
             localStorage.setItem('participantId', participantId);
             localStorage.setItem('groupId', groupId);
-            
+
             joinStep.style.display = 'none';
             sharingStep.style.display = 'block';
             startWatchingPosition();
 
-          } catch (error) { showError('Erreur : ' + error.message); }
+          } catch (err) {
+            showError('Erreur : ' + err.message);
+          }
         },
-        (error) => { showError("Erreur de géolocalisation : " + error.message + ". Veuillez autoriser la localisation."); },
-        { enableHighAccuracy: true } // Demande une position plus précise
+        (error) => {
+          showError("Erreur de géolocalisation : " + error.message + ". Veuillez autoriser la localisation.");
+        },
+        { enableHighAccuracy: true }
       );
-    });
-    
+    }
+
     function startWatchingPosition() {
       if (watchId) navigator.geolocation.clearWatch(watchId);
 
       watchId = navigator.geolocation.watchPosition(
         async (position) => {
           if (!participantId) {
-            console.error("ID du participant manquant. Impossible de mettre à jour.");
-            statusText.textContent = "Erreur (ID manquant)"; statusText.style.color = 'red';
+            statusText.textContent = "Erreur (ID manquant)";
+            statusText.style.color = 'red';
             return;
           }
-        
+
           const { latitude, longitude } = position.coords;
           const newLocation = `POINT(${longitude} ${latitude})`;
 
@@ -200,20 +150,34 @@
           });
 
           if (error) {
-            console.error("Erreur de mise à jour:", error);
-            statusText.textContent = "Erreur"; statusText.style.color = 'red';
+            statusText.textContent = "Erreur";
+            statusText.style.color = 'red';
           } else {
-            console.log("Position mise à jour !");
-            statusText.textContent = "En ligne"; statusText.style.color = '#28a745';
+            statusText.textContent = "En ligne";
+            statusText.style.color = '#28a745';
           }
         },
-        (error) => { 
-          console.error("Erreur de suivi GPS:", error);
-          statusText.textContent = "Erreur GPS"; statusText.style.color = 'red';
+        (error) => {
+          statusText.textContent = "Erreur GPS";
+          statusText.style.color = 'red';
         },
-        { enableHighAccuracy: true }
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
       );
+
+      // 🔁 Envoi régulier même si watchPosition est ralenti
+      setInterval(async () => {
+        if (participantId && navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(async (pos) => {
+            const { latitude, longitude } = pos.coords;
+            const newLocation = `POINT(${longitude} ${latitude})`;
+            await supabaseClient.rpc('update_participant_location_web', {
+              p_participant_id: participantId,
+              p_new_location: newLocation,
+            });
+          });
+        }
+      }, 15000); // mise à jour toutes les 15 secondes
     }
-</script>
+  </script>
 </body>
 </html>
